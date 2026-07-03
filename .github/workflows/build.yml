@@ -502,12 +502,26 @@ jobs:
             exit 1
           fi
 
-      # STEP BARU: Generate icon untuk Flutter
-      - name: Generate Flutter app icons
+      # STEP GENERATE ICON DENGAN PENGECEKAN
+      - name: Generate Flutter app icons (only if not exists)
         if: env.type == 'flutter'
         run: |
           cd flutter-project
-          mkdir -p android/app/src/main/res
+          # Cek apakah ikon sudah ada di semua folder mipmap
+          ICON_EXISTS=true
+          for dir in mipmap-hdpi mipmap-mdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi; do
+            if [ ! -f "android/app/src/main/res/$dir/ic_launcher.png" ]; then
+              ICON_EXISTS=false
+              break
+            fi
+          done
+
+          if [ "$ICON_EXISTS" = true ]; then
+            echo "✅ Icons already exist in Flutter project, skipping generation."
+            exit 0
+          fi
+
+          echo "Icons not found, generating from build-assets/icon.png..."
 
           # Cek apakah ada icon di build-assets (dari repo)
           if [ -f ../build-assets/icon.png ] && file ../build-assets/icon.png | grep -q PNG; then
@@ -537,7 +551,7 @@ jobs:
           cp android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png android/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png
           cp android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png
 
-          echo "✅ Icons Flutter berhasil digenerate"
+          echo "✅ Icons Flutter berhasil digenerate (karena belum ada sebelumnya)."
 
       - name: Fix Flutter Android configuration (compileSdk 36 & signing)
         if: env.type == 'flutter'
@@ -569,6 +583,31 @@ jobs:
           else
             echo "Tidak ditemukan build.gradle atau build.gradle.kts"
             exit 1
+          fi
+
+      # DETEKSI VERSI GRADLE YANG DIBUTUHKAN DAN INSTALL SESUAI
+      - name: Detect and set Gradle version for Flutter
+        if: env.type == 'flutter'
+        run: |
+          cd flutter-project/android
+          if [ -f gradle/wrapper/gradle-wrapper.properties ]; then
+            # Ambil versi dari distributionUrl
+            GRADLE_VERSION=$(grep distributionUrl gradle/wrapper/gradle-wrapper.properties | sed -n 's/.*gradle-\([0-9.]*\)-.*/\1/p')
+            echo "Detected required Gradle version from wrapper: $GRADLE_VERSION"
+            # Versi yang sedang terinstall (default 8.9)
+            CURRENT_GRADLE=$(gradle --version | grep "Gradle" | head -n1 | awk '{print $NF}' || echo "unknown")
+            echo "Currently installed Gradle: $CURRENT_GRADLE"
+            if [ -n "$GRADLE_VERSION" ] && [ "$GRADLE_VERSION" != "$CURRENT_GRADLE" ]; then
+              echo "Installing Gradle $GRADLE_VERSION (upgrade/downgrade)"
+              source "$HOME/.sdkman/bin/sdkman-init.sh"
+              sdk install gradle $GRADLE_VERSION
+              sdk use gradle $GRADLE_VERSION
+              echo "✅ Gradle $GRADLE_VERSION installed and set."
+            else
+              echo "✅ Gradle version matches required version or not detected, skipping."
+            fi
+          else
+            echo "No gradle-wrapper.properties found, using default gradle."
           fi
 
       - name: Detect Flutter version from pubspec
