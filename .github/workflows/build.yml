@@ -502,27 +502,39 @@ jobs:
             exit 1
           fi
 
-      - name: Generate Flutter app icons (only if not exists)
+      - name: Generate Flutter app icons (only if not exists or invalid)
         if: env.type == 'flutter'
         run: |
           cd flutter-project
-          # Cek apakah ikon sudah ada di semua folder mipmap
-          ICON_EXISTS=true
-          for dir in mipmap-hdpi mipmap-mdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi; do
+          # Definisikan folder mipmap
+          MIPMAP_DIRS="mipmap-hdpi mipmap-mdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi"
+          # Cek apakah ikon sudah ada dan valid (semua file ic_launcher.png ada dan merupakan PNG)
+          ICON_VALID=true
+          for dir in $MIPMAP_DIRS; do
             if [ ! -f "android/app/src/main/res/$dir/ic_launcher.png" ]; then
-              ICON_EXISTS=false
+              ICON_VALID=false
+              break
+            fi
+            # Cek apakah file benar PNG
+            if ! file "android/app/src/main/res/$dir/ic_launcher.png" | grep -q PNG; then
+              ICON_VALID=false
               break
             fi
           done
 
-          if [ "$ICON_EXISTS" = true ]; then
-            echo "✅ Icons already exist in Flutter project, skipping generation."
+          if [ "$ICON_VALID" = true ]; then
+            echo "✅ Icons already exist and valid in Flutter project, skipping generation."
             exit 0
           fi
 
-          echo "Icons not found, generating from build-assets/icon.png..."
+          echo "⚠️ Icons not found or invalid, cleaning and generating from build-assets/icon.png..."
 
-          # Cek apakah ada icon di build-assets (dari repo)
+          # Hapus semua file ikon yang ada (jpg, png, webp, dll) untuk menghindari duplikat
+          for dir in $MIPMAP_DIRS; do
+            rm -f android/app/src/main/res/$dir/ic_launcher.*
+          done
+
+          # Sumber icon: cek di build-assets/icon.png atau buat default
           if [ -f ../build-assets/icon.png ] && file ../build-assets/icon.png | grep -q PNG; then
             echo "✅ Menggunakan icon dari build-assets/icon.png"
             ICON_SRC="../build-assets/icon.png"
@@ -532,25 +544,24 @@ jobs:
             ICON_SRC="../build-assets/icon.png"
           fi
 
-          # Generate semua ukuran icon ke folder mipmap
-          for dir in mipmap-hdpi mipmap-mdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi; do
+          # Buat folder jika belum ada
+          for dir in $MIPMAP_DIRS; do
             mkdir -p android/app/src/main/res/$dir
           done
 
+          # Generate ukuran
           convert $ICON_SRC -resize 72x72 android/app/src/main/res/mipmap-hdpi/ic_launcher.png
           convert $ICON_SRC -resize 48x48 android/app/src/main/res/mipmap-mdpi/ic_launcher.png
           convert $ICON_SRC -resize 96x96 android/app/src/main/res/mipmap-xhdpi/ic_launcher.png
           convert $ICON_SRC -resize 144x144 android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
           convert $ICON_SRC -resize 192x192 android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
 
-          # Buat round icon (copy saja)
-          cp android/app/src/main/res/mipmap-hdpi/ic_launcher.png android/app/src/main/res/mipmap-hdpi/ic_launcher_round.png
-          cp android/app/src/main/res/mipmap-mdpi/ic_launcher.png android/app/src/main/res/mipmap-mdpi/ic_launcher_round.png
-          cp android/app/src/main/res/mipmap-xhdpi/ic_launcher.png android/app/src/main/res/mipmap-xhdpi/ic_launcher_round.png
-          cp android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png android/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png
-          cp android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png
+          # Copy untuk round icon
+          for dir in $MIPMAP_DIRS; do
+            cp android/app/src/main/res/$dir/ic_launcher.png android/app/src/main/res/$dir/ic_launcher_round.png
+          done
 
-          echo "✅ Icons Flutter berhasil digenerate (karena belum ada sebelumnya)."
+          echo "✅ Icons Flutter berhasil digenerate."
 
       - name: Fix Flutter Android configuration (compileSdk 36 & signing)
         if: env.type == 'flutter'
@@ -596,7 +607,6 @@ jobs:
             if [ -n "$GRADLE_VERSION" ] && [ "$GRADLE_VERSION" != "$CURRENT_GRADLE" ]; then
               echo "Installing Gradle $GRADLE_VERSION (upgrade/downgrade)"
               source "$HOME/.sdkman/bin/sdkman-init.sh"
-              # PERBAIKAN: gunakan 'yes |' untuk menjawab prompt secara otomatis
               yes | sdk install gradle $GRADLE_VERSION
               sdk use gradle $GRADLE_VERSION
               echo "✅ Gradle $GRADLE_VERSION installed and set."
