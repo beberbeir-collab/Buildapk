@@ -502,7 +502,6 @@ jobs:
             exit 1
           fi
 
-      # STEP GENERATE ICON DENGAN PENGECEKAN
       - name: Generate Flutter app icons (only if not exists)
         if: env.type == 'flutter'
         run: |
@@ -585,22 +584,20 @@ jobs:
             exit 1
           fi
 
-      # DETEKSI VERSI GRADLE YANG DIBUTUHKAN DAN INSTALL SESUAI
       - name: Detect and set Gradle version for Flutter
         if: env.type == 'flutter'
         run: |
           cd flutter-project/android
           if [ -f gradle/wrapper/gradle-wrapper.properties ]; then
-            # Ambil versi dari distributionUrl
             GRADLE_VERSION=$(grep distributionUrl gradle/wrapper/gradle-wrapper.properties | sed -n 's/.*gradle-\([0-9.]*\)-.*/\1/p')
             echo "Detected required Gradle version from wrapper: $GRADLE_VERSION"
-            # Versi yang sedang terinstall (default 8.9)
             CURRENT_GRADLE=$(gradle --version | grep "Gradle" | head -n1 | awk '{print $NF}' || echo "unknown")
             echo "Currently installed Gradle: $CURRENT_GRADLE"
             if [ -n "$GRADLE_VERSION" ] && [ "$GRADLE_VERSION" != "$CURRENT_GRADLE" ]; then
               echo "Installing Gradle $GRADLE_VERSION (upgrade/downgrade)"
               source "$HOME/.sdkman/bin/sdkman-init.sh"
-              sdk install gradle $GRADLE_VERSION
+              # PERBAIKAN: gunakan 'yes |' untuk menjawab prompt secara otomatis
+              yes | sdk install gradle $GRADLE_VERSION
               sdk use gradle $GRADLE_VERSION
               echo "✅ Gradle $GRADLE_VERSION installed and set."
             else
@@ -618,7 +615,7 @@ jobs:
           set -e
           PUBSPEC="flutter-project/pubspec.yaml"
 
-          SDK_LINE=$(grep -A2 '^environment:' "$PUBSPEC" | grep 'sdk:' | head -n1 | sed 's/.*sdk:[[:space:]]*//; s/["\'\'']//g' || true)
+          SDK_LINE=$(grep -A2 '^environment:' "$PUBSPEC" | grep 'sdk:' | head -n1 | sed 's/.*sdk:[[:space:]]*//; s/["'\'']//g' || true)
           echo "Detected SDK constraint: $SDK_LINE"
 
           FLUTTER_VERSION="3.27.0"
