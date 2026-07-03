@@ -502,66 +502,103 @@ jobs:
             exit 1
           fi
 
-      - name: Generate Flutter app icons (only if not exists or invalid)
+      - name: Generate Flutter app icons (fix invalid PNG)
         if: env.type == 'flutter'
         run: |
           cd flutter-project
-          # Definisikan folder mipmap
           MIPMAP_DIRS="mipmap-hdpi mipmap-mdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi"
-          # Cek apakah ikon sudah ada dan valid (semua file ic_launcher.png ada dan merupakan PNG)
-          ICON_VALID=true
+          NEEDS_REGEN=false
+
+          # Cek apakah semua file ic_launcher.png ada dan valid
           for dir in $MIPMAP_DIRS; do
-            if [ ! -f "android/app/src/main/res/$dir/ic_launcher.png" ]; then
-              ICON_VALID=false
+            PNG_FILE="android/app/src/main/res/$dir/ic_launcher.png"
+            if [ ! -f "$PNG_FILE" ]; then
+              NEEDS_REGEN=true
               break
             fi
-            # Cek apakah file benar PNG
-            if ! file "android/app/src/main/res/$dir/ic_launcher.png" | grep -q PNG; then
-              ICON_VALID=false
+            # Validasi dengan file dan identify
+            if ! file "$PNG_FILE" | grep -q PNG || ! identify "$PNG_FILE" &>/dev/null; then
+              NEEDS_REGEN=true
               break
             fi
           done
 
-          if [ "$ICON_VALID" = true ]; then
-            echo "✅ Icons already exist and valid in Flutter project, skipping generation."
+          if [ "$NEEDS_REGEN" = false ]; then
+            echo "✅ Icons already exist and valid, skipping."
             exit 0
           fi
 
-          echo "⚠️ Icons not found or invalid, cleaning and generating from build-assets/icon.png..."
+          echo "⚠️ Icons missing or invalid. Attempting to fix by converting existing files..."
 
-          # Hapus semua file ikon yang ada (jpg, png, webp, dll) untuk menghindari duplikat
+          # Jika semua file ada tapi ada yang tidak valid, coba konversi ulang
+          # Cek apakah semua file ada (meskipun tidak valid)
+          ALL_EXIST=true
+          for dir in $MIPMAP_DIRS; do
+            if [ ! -f "android/app/src/main/res/$dir/ic_launcher.png" ]; then
+              ALL_EXIST=false
+              break
+            fi
+          done
+
+          if [ "$ALL_EXIST" = true ]; then
+            echo "All files exist, trying to convert them to valid PNG..."
+            CONVERT_FAIL=false
+            for dir in $MIPMAP_DIRS; do
+              PNG_FILE="android/app/src/main/res/$dir/ic_launcher.png"
+              # convert will read the actual format and rewrite as PNG
+              if ! convert "$PNG_FILE" "$PNG_FILE" 2>/dev/null; then
+                CONVERT_FAIL=true
+                break
+              fi
+            done
+            if [ "$CONVERT_FAIL" = false ]; then
+              # Also fix round icons
+              for dir in $MIPMAP_DIRS; do
+                ROUND_FILE="android/app/src/main/res/$dir/ic_launcher_round.png"
+                if [ -f "$ROUND_FILE" ]; then
+                  convert "$ROUND_FILE" "$ROUND_FILE" 2>/dev/null || true
+                fi
+              done
+              echo "✅ Icons converted successfully."
+              exit 0
+            else
+              echo "Conversion failed, will regenerate from source."
+            fi
+          fi
+
+          # Jika tidak semua ada atau konversi gagal, regenerasi dari build-assets
+          echo "Regenerating icons from build-assets/icon.png..."
+
+          # Hapus semua file ikon
           for dir in $MIPMAP_DIRS; do
             rm -f android/app/src/main/res/$dir/ic_launcher.*
           done
 
-          # Sumber icon: cek di build-assets/icon.png atau buat default
+          # Sumber icon
           if [ -f ../build-assets/icon.png ] && file ../build-assets/icon.png | grep -q PNG; then
-            echo "✅ Menggunakan icon dari build-assets/icon.png"
+            echo "✅ Using icon from build-assets/icon.png"
             ICON_SRC="../build-assets/icon.png"
           else
-            echo "⚠️ Icon tidak ditemukan atau tidak valid, membuat default biru..."
+            echo "⚠️ No valid icon found, creating default blue icon..."
             convert -size 512x512 xc:blue ../build-assets/icon.png
             ICON_SRC="../build-assets/icon.png"
           fi
 
-          # Buat folder jika belum ada
           for dir in $MIPMAP_DIRS; do
             mkdir -p android/app/src/main/res/$dir
           done
 
-          # Generate ukuran
           convert $ICON_SRC -resize 72x72 android/app/src/main/res/mipmap-hdpi/ic_launcher.png
           convert $ICON_SRC -resize 48x48 android/app/src/main/res/mipmap-mdpi/ic_launcher.png
           convert $ICON_SRC -resize 96x96 android/app/src/main/res/mipmap-xhdpi/ic_launcher.png
           convert $ICON_SRC -resize 144x144 android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
           convert $ICON_SRC -resize 192x192 android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
 
-          # Copy untuk round icon
           for dir in $MIPMAP_DIRS; do
             cp android/app/src/main/res/$dir/ic_launcher.png android/app/src/main/res/$dir/ic_launcher_round.png
           done
 
-          echo "✅ Icons Flutter berhasil digenerate."
+          echo "✅ Icons regenerated successfully."
 
       - name: Fix Flutter Android configuration (compileSdk 36 & signing)
         if: env.type == 'flutter'
